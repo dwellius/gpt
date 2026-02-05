@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable
-
-from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6 import QtCore, QtWidgets
 
 from app.db.database import init_db, save_history
 from app.es.engine import ExpertSystem, load_default_rules
@@ -89,22 +87,26 @@ class MainWindow(QtWidgets.QMainWindow):
         """Создать элементы шага с информацией об автомобиле."""
         layout = QtWidgets.QFormLayout(self.general_tab)
 
+        self.brand_label = QtWidgets.QLabel("Марка:*")
         self.brand_combo = QtWidgets.QComboBox()
         self.brand_combo.addItems(BRAND_MODELS.keys())
         self.brand_combo.currentTextChanged.connect(self._update_model_completer)
-        layout.addRow("Марка:", self.brand_combo)
+        layout.addRow(self.brand_label, self.brand_combo)
 
+        self.model_label = QtWidgets.QLabel("Модель:*")
         self.model_edit = QtWidgets.QLineEdit()
-        layout.addRow("Модель:", self.model_edit)
+        layout.addRow(self.model_label, self.model_edit)
 
+        self.year_label = QtWidgets.QLabel("Год выпуска:*")
         self.year_combo = QtWidgets.QComboBox()
         self.year_combo.addItems([str(year) for year in range(1990, 2026)])
-        layout.addRow("Год выпуска:", self.year_combo)
+        layout.addRow(self.year_label, self.year_combo)
 
+        self.mileage_label = QtWidgets.QLabel("Пробег:*")
         self.mileage_spin = QtWidgets.QSpinBox()
         self.mileage_spin.setRange(0, 999)
         self.mileage_spin.setSuffix(" тыс. км")
-        layout.addRow("Пробег:", self.mileage_spin)
+        layout.addRow(self.mileage_label, self.mileage_spin)
 
         # Инициализируем автодополнение для модели.
         self._update_model_completer(self.brand_combo.currentText())
@@ -318,6 +320,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.self_repair_edit.clear()
         self.noise_character_edit.clear()
         self.symptom_change_edit.clear()
+        self._mark_required_label(self.brand_label, True)
+        self._mark_required_label(self.model_label, True)
+        self._mark_required_label(self.year_label, True)
+        self._mark_required_label(self.mileage_label, True)
         self._set_result(
             diagnosis="-",
             probability="-",
@@ -328,7 +334,17 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def run_diagnosis(self) -> None:
         """Запустить диагностику и вывести результат."""
+        if not self._validate_required_fields():
+            return
+
         symptoms = self._collect_symptoms()
+        if not symptoms:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Недостаточно данных",
+                "Выберите хотя бы один симптом или условие появления проблемы.",
+            )
+            return
         car_info = self._collect_car_info()
 
         # Дополняем симптомы дополнительными сведениями для контекста.
@@ -352,6 +368,50 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Сохраняем историю в БД.
         save_history(car_info, sorted(symptoms), result)
+
+    def _validate_required_fields(self) -> bool:
+        """Проверить заполнение обязательных полей."""
+        missing = []
+        self._mark_required_label(self.model_label, True)
+        self._mark_required_label(self.brand_label, True)
+        self._mark_required_label(self.year_label, True)
+        self._mark_required_label(self.mileage_label, True)
+
+        if not self.model_edit.text().strip():
+            missing.append("Модель")
+            self._mark_required_label(self.model_label, False)
+
+        if not self.brand_combo.currentText():
+            missing.append("Марка")
+            self._mark_required_label(self.brand_label, False)
+
+        if not self.year_combo.currentText():
+            missing.append("Год выпуска")
+            self._mark_required_label(self.year_label, False)
+
+        if self.mileage_spin.value() == 0:
+            missing.append("Пробег")
+            self._mark_required_label(self.mileage_label, False)
+
+        if missing:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Обязательные поля",
+                "Заполните обязательные поля: "
+                + ", ".join(missing)
+                + ". Поля подсвечены красным.",
+            )
+            return False
+
+        return True
+
+    @staticmethod
+    def _mark_required_label(label: QtWidgets.QLabel, is_valid: bool) -> None:
+        """Подсветить обязательное поле, если оно не заполнено."""
+        if is_valid:
+            label.setStyleSheet("color: #2c3e50;")
+        else:
+            label.setStyleSheet("color: #c0392b; font-weight: bold;")
 
     def _set_result(
         self,
